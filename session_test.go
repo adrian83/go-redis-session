@@ -5,6 +5,14 @@ import (
 	//"time"
 )
 
+func TestRedisSessionImplementsSessionInterface(t *testing.T) {
+
+	var session Session = redisSession{}
+	t.Logf("redisSession implements Session %v", session)
+
+}
+
+/*
 func TestSessionStoreCreation(t *testing.T) {
 
 	t.Logf("Given the need to create a session store.")
@@ -20,7 +28,7 @@ func TestSessionStoreCreation(t *testing.T) {
 
 }
 
-/*
+
 func TestSessionCreation(t *testing.T) {
 
 	t.Logf("Given the need to create a session.")

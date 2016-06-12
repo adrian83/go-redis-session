@@ -1,47 +1,23 @@
 package redissession
 
 import (
-	//"bytes"
-	"crypto/rand"
-	"errors"
-	"fmt"
-	"gopkg.in/redis.v3"
-	"strconv"
-	"time"
+//"bytes"
+//"crypto/rand"
+//"errors"
+//"fmt"
+//"gopkg.in/redis.v3"
+//"strconv"
+//"time"
 )
 
+/*
 const (
 	valid_for             = "__##__valid_for__##__"
 	defaultSessionTimeout = time.Hour
 	empty                 = ""
 )
 
-type SessionStore struct {
-	redisClient *redis.Client
-}
 
-func (store *SessionStore) NewSession(valid time.Duration) (*Session, error) {
-	sessionId, err := generateSessionId(20)
-	if err != nil {
-		return nil, err
-	}
-
-	sess := Session{client: store.redisClient, Id: sessionId, valid: valid}
-	sess.Add(valid_for, strconv.Itoa(int(valid.Seconds())))
-	return &sess, nil
-}
-
-func (store *SessionStore) FindSession(sessionId string) (*Session, error) {
-	sess := Session{client: store.redisClient, Id: sessionId}
-	_, err := sess.Get(valid_for)
-
-	if err == nil {
-		sess.fillLifeDuration()
-	}
-
-	return &sess, err
-
-}
 
 func NewSessionStore() (SessionStore, error) {
 	redisClient := redis.NewClient(&redis.Options{
@@ -97,15 +73,7 @@ func (session *Session) fillLifeDuration() {
 
 // ------- UTIL FUNCTIONS -------
 
-func generateSessionId(idLen int) (string, error) {
-	b := make([]byte, idLen)
-	_, err := rand.Read(b)
-	if err != nil {
-		return empty, errors.New("Cannont generate session ID")
-	}
 
-	return string(b[:]), nil
-}
 
 // ------- SESSION FUNCTIONS -------
 
@@ -132,4 +100,64 @@ func (session *Session) Get(name string) (string, error) {
 	}
 
 	return empty, nil
+}
+*/
+
+func generateSessionId(idLen int) (string, error) {
+	b := make([]byte, idLen)
+	_, err := rand.Read(b)
+	if err != nil {
+		return empty, errors.New("Cannont generate session ID")
+	}
+
+	return string(b[:]), nil
+}
+
+type SessionStore struct {
+	redisClient *redis.Client
+}
+
+func (store *SessionStore) NewSession(valid time.Duration) (*Session, error) {
+	sessionId, err := generateSessionId(20)
+	if err != nil {
+		return nil, err
+	}
+
+	sess := Session{client: store.redisClient, Id: sessionId, valid: valid}
+	sess.Add(valid_for, strconv.Itoa(int(valid.Seconds())))
+	return &sess, nil
+}
+
+func (store *SessionStore) FindSession(sessionId string) (*Session, error) {
+	sess := Session{client: store.redisClient, Id: sessionId}
+	_, err := sess.Get(valid_for)
+
+	if err == nil {
+		sess.fillLifeDuration()
+	}
+
+	return &sess, err
+
+}
+
+type Session interface {
+	Id() (string, error)
+	Add(name string, value interface{}) error
+	Get(name string) (interface{}, error)
+}
+
+type redisSession struct {
+	id string
+}
+
+func (s redisSession) Id() (string, error) {
+	return s.id, nil
+}
+
+func (s redisSession) Add(name string, value interface{}) error {
+	return nil
+}
+
+func (s redisSession) Get(name string) (interface{}, error) {
+	return "abc", nil
 }
