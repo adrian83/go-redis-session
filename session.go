@@ -26,13 +26,13 @@ func (store *SessionStore) NewSession(valid time.Duration) (*Session, error) {
 		return nil, err
 	}
 
-	sess := Session{client: store.redisClient, id: sessionId, valid: valid}
+	sess := Session{client: store.redisClient, Id: sessionId, valid: valid}
 	sess.Add(valid_for, strconv.Itoa(int(valid.Seconds())))
 	return &sess, nil
 }
 
 func (store *SessionStore) FindSession(sessionId string) (*Session, error) {
-	sess := Session{client: store.redisClient, id: sessionId}
+	sess := Session{client: store.redisClient, Id: sessionId}
 	_, err := sess.Get(valid_for)
 
 	if err == nil {
@@ -58,7 +58,7 @@ func NewSessionStore() (SessionStore, error) {
 
 type Session struct {
 	client *redis.Client
-	id     string
+	Id     string
 	valid  time.Duration
 }
 
@@ -110,7 +110,7 @@ func generateSessionId(idLen int) (string, error) {
 // ------- SESSION FUNCTIONS -------
 
 func (session *Session) Add(name, value string) error {
-	command := session.client.HMSet(session.id, name, value)
+	command := session.client.HMSet(session.Id, name, value)
 	//fmt.Println("[Session Add (HMSet)]: ", command.String())
 
 	if err := command.Err(); err != nil {
@@ -121,7 +121,7 @@ func (session *Session) Add(name, value string) error {
 }
 
 func (session *Session) Get(name string) (string, error) {
-	command := session.client.HMGet(session.id, name)
+	command := session.client.HMGet(session.Id, name)
 
 	if err := command.Err(); err != nil {
 		return empty, OperationFailed{operation: "HMGet", cause: err}
