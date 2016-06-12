@@ -20,19 +20,19 @@ type SessionStore struct {
 	redisClient *redis.Client
 }
 
-func (store *SessionStore) NewSession(valid time.Duration) (*session, error) {
+func (store *SessionStore) NewSession(valid time.Duration) (*Session, error) {
 	sessionId, err := generateSessionId(20)
 	if err != nil {
 		return nil, err
 	}
 
-	sess := session{client: store.redisClient, id: sessionId, valid: valid}
+	sess := Session{client: store.redisClient, id: sessionId, valid: valid}
 	sess.Add(valid_for, strconv.Itoa(int(valid.Seconds())))
 	return &sess, nil
 }
 
-func (store *SessionStore) FindSession(sessionId string) (*session, error) {
-	sess := session{client: store.redisClient, id: sessionId}
+func (store *SessionStore) FindSession(sessionId string) (*Session, error) {
+	sess := Session{client: store.redisClient, id: sessionId}
 	_, err := sess.Get(valid_for)
 
 	if err == nil {
@@ -56,32 +56,32 @@ func NewSessionStore() (SessionStore, error) {
 	return SessionStore{redisClient: redisClient}, err
 }
 
-type session struct {
+type Session struct {
 	client *redis.Client
 	id     string
 	valid  time.Duration
 }
 
-type sessionNotFound struct {
+type SessionNotFound struct {
 	sessionId string
 }
 
-func (err sessionNotFound) Error() string {
+func (err SessionNotFound) Error() string {
 	return fmt.Sprintf("Session with id: %s not found", err.sessionId)
 }
 
-type operationFailed struct {
+type OperationFailed struct {
 	operation string
 	cause     error
 }
 
-func (err operationFailed) Error() string {
+func (err OperationFailed) Error() string {
 	return fmt.Sprintf("Operation: %s failed because of: %s", err.operation, err.cause)
 }
 
 // ------- TYPES -------
 
-func (session *session) fillLifeDuration() {
+func (session *Session) fillLifeDuration() {
 	secondsStr, err := session.Get(valid_for)
 
 	if err == nil {
@@ -109,22 +109,22 @@ func generateSessionId(idLen int) (string, error) {
 
 // ------- SESSION FUNCTIONS -------
 
-func (session *session) Add(name, value string) error {
+func (session *Session) Add(name, value string) error {
 	command := session.client.HMSet(session.id, name, value)
 	//fmt.Println("[Session Add (HMSet)]: ", command.String())
 
 	if err := command.Err(); err != nil {
-		return operationFailed{operation: "HMSet", cause: err}
+		return OperationFailed{operation: "HMSet", cause: err}
 	}
 
 	return nil
 }
 
-func (session *session) Get(name string) (string, error) {
+func (session *Session) Get(name string) (string, error) {
 	command := session.client.HMGet(session.id, name)
 
 	if err := command.Err(); err != nil {
-		return empty, operationFailed{operation: "HMGet", cause: err}
+		return empty, OperationFailed{operation: "HMGet", cause: err}
 	}
 
 	if val := command.Val(); val != nil && len(val) > 0 && val[0] != nil {
