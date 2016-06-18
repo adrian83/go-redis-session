@@ -1,163 +1,208 @@
 package redissession
 
 import (
-//"bytes"
-//"crypto/rand"
-//"errors"
-//"fmt"
-//"gopkg.in/redis.v3"
-//"strconv"
-//"time"
+	"encoding/json"
+	"fmt"
+	"gopkg.in/redis.v3"
+	"math/rand"
+	"strconv"
+	"time"
 )
 
-/*
 const (
-	valid_for             = "__##__valid_for__##__"
-	defaultSessionTimeout = time.Hour
-	empty                 = ""
+	alowedIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 )
 
-
-
-func NewSessionStore() (SessionStore, error) {
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	pong, err := redisClient.Ping().Result()
-	fmt.Println("PING: ", pong, err)
-
-	return SessionStore{redisClient: redisClient}, err
+func init() {
+	rand.Seed(time.Now().UTC().UnixNano())
 }
 
-type Session struct {
-	client *redis.Client
-	Id     string
-	valid  time.Duration
+/* Interfaces */
+
+// Session interface represents user session.
+type Session interface {
+	ID() string
+	Add(name string, value interface{})
+	Get(name string) (interface{}, bool)
+	Values() map[string]interface{}
+	Valid() time.Duration
 }
 
-type SessionNotFound struct {
-	sessionId string
-}
+/* Structs */
 
-func (err SessionNotFound) Error() string {
-	return fmt.Sprintf("Session with id: %s not found", err.sessionId)
-}
+/* Errors */
 
+// OperationFailed abc
 type OperationFailed struct {
 	operation string
 	cause     error
 }
 
+// Error abc
 func (err OperationFailed) Error() string {
 	return fmt.Sprintf("Operation: %s failed because of: %s", err.operation, err.cause)
 }
 
-// ------- TYPES -------
-
-func (session *Session) fillLifeDuration() {
-	secondsStr, err := session.Get(valid_for)
-
-	if err == nil {
-		seconds, e := strconv.Atoi(secondsStr)
-		if e != nil {
-			session.valid = defaultSessionTimeout
-		} else {
-			session.valid = time.Duration(seconds) * time.Second
-		}
-
-	}
+// Config contains all the values used by sessions store.
+type Config struct {
+	Host     string
+	Port     int
+	Password string
+	DB       int64
+	IDLength int
 }
 
-// ------- UTIL FUNCTIONS -------
-
-
-
-// ------- SESSION FUNCTIONS -------
-
-func (session *Session) Add(name, value string) error {
-	command := session.client.HMSet(session.Id, name, value)
-	//fmt.Println("[Session Add (HMSet)]: ", command.String())
-
-	if err := command.Err(); err != nil {
-		return OperationFailed{operation: "HMSet", cause: err}
+// NewSessionStore creates new SessionStore struct based on the provided configuration.
+func NewSessionStore(config Config) (SessionStore, error) {
+	options := &redis.Options{
+		Addr:     config.Host + ":" + strconv.Itoa(config.Port),
+		Password: config.Password,
+		DB:       config.DB,
 	}
 
-	return nil
+	redisClient := redis.NewClient(options)
+
+	_, err := redisClient.Ping().Result()
+
+	return SessionStore{redisClient: redisClient, config: config}, err
 }
 
-func (session *Session) Get(name string) (string, error) {
-	command := session.client.HMGet(session.Id, name)
-
-	if err := command.Err(); err != nil {
-		return empty, OperationFailed{operation: "HMGet", cause: err}
-	}
-
-	if val := command.Val(); val != nil && len(val) > 0 && val[0] != nil {
-		return val[0].(string), nil
-	}
-
-	return empty, nil
-}
-*/
-
-func generateSessionId(idLen int) (string, error) {
-	b := make([]byte, idLen)
-	_, err := rand.Read(b)
-	if err != nil {
-		return empty, errors.New("Cannont generate session ID")
-	}
-
-	return string(b[:]), nil
-}
-
+// SessionStore is a struct used for creating, updateing and searching for sessions.
 type SessionStore struct {
 	redisClient *redis.Client
+	config      Config
 }
 
-func (store *SessionStore) NewSession(valid time.Duration) (*Session, error) {
-	sessionId, err := generateSessionId(20)
-	if err != nil {
-		return nil, err
-	}
+// NewSession creates new session with given life length.
+func (s *SessionStore) NewSession(valid time.Duration) (Session, error) {
+	sessionID := randomString(s.config.IDLength)
+	sess := redisSession{
+		client: s.redisClient,
+		id:     sessionID,
+		valid:  valid,
+		values: make(map[string]interface{})}
 
-	sess := Session{client: store.redisClient, Id: sessionId, valid: valid}
-	sess.Add(valid_for, strconv.Itoa(int(valid.Seconds())))
 	return &sess, nil
 }
 
-func (store *SessionStore) FindSession(sessionId string) (*Session, error) {
-	sess := Session{client: store.redisClient, Id: sessionId}
-	_, err := sess.Get(valid_for)
+// Close cleans up SessionStore resources.
+func (s *SessionStore) Close() error {
+	return s.redisClient.Close()
+}
 
-	if err == nil {
-		sess.fillLifeDuration()
+// FindSession function is used to get session by its id.
+func (s *SessionStore) FindSession(sessionID string) (Session, error) {
+
+	sessionJSON, err := s.redisClient.Get(sessionID).Result()
+	if err != nil {
+		return nil, OperationFailed{operation: "Get", cause: err}
 	}
 
-	return &sess, err
+	redisSession := new(redisSession)
+	if err = json.Unmarshal([]byte(sessionJSON), redisSession); err != nil {
+		return nil, err
+	}
 
+	return redisSession, err
 }
 
-type Session interface {
-	Id() (string, error)
-	Add(name string, value interface{}) error
-	Get(name string) (interface{}, error)
-}
+// SaveSession saves given session into Redis.
+func (s *SessionStore) SaveSession(session Session) error {
 
-type redisSession struct {
-	id string
-}
+	redisSession := &redisSession{id: session.ID(), values: session.Values(), valid: session.Valid()}
 
-func (s redisSession) Id() (string, error) {
-	return s.id, nil
-}
+	sessionJSON, err := json.Marshal(redisSession)
+	if err != nil {
+		return err
+	}
 
-func (s redisSession) Add(name string, value interface{}) error {
+	statCmd := s.redisClient.Set(session.ID(), sessionJSON, session.Valid())
+	_, err = statCmd.Result()
+
+	if err != nil {
+		return OperationFailed{operation: "Set", cause: err}
+	}
+
 	return nil
 }
 
-func (s redisSession) Get(name string) (interface{}, error) {
-	return "abc", nil
+type redisSession struct {
+	id     string
+	client *redis.Client
+	valid  time.Duration
+	values map[string]interface{}
+}
+
+// UnmarshalJSON func is used for unmarshaling redisSession struct.
+func (s *redisSession) UnmarshalJSON(b []byte) error {
+	f := new(struct {
+		ID     string                 `json:"id"`
+		Valid  time.Duration          `json:"valid"`
+		Values map[string]interface{} `json:"values"`
+	})
+
+	if err := json.Unmarshal(b, f); err != nil {
+		return err
+	}
+
+	s.id = f.ID
+	s.valid = f.Valid
+	s.values = f.Values
+	return nil
+}
+
+// MarshalJSON func is used for marshaling redisSession struct.
+func (s *redisSession) MarshalJSON() ([]byte, error) {
+
+	bytes, err := json.Marshal(struct {
+		ID     string                 `json:"id"`
+		Valid  time.Duration          `json:"valid"`
+		Values map[string]interface{} `json:"values"`
+	}{
+		ID:     s.id,
+		Valid:  s.valid,
+		Values: s.values,
+	})
+
+	return bytes, err
+}
+
+// String returns representation of the redisSession as a string.
+func (s *redisSession) String() string {
+	return fmt.Sprintf("redisSession { id: %v, valid: %v, values: %v }", s.id, s.valid, s.values)
+}
+
+// Id returns id of the session. The func is part of Session interface.
+func (s redisSession) ID() string {
+	return s.id
+}
+
+// Add adds key-value pair to the session. The func is part of Session interface.
+func (s redisSession) Add(name string, value interface{}) {
+	s.values[name] = value
+}
+
+// Get abc. The func is part of Session interface.
+func (s redisSession) Get(name string) (interface{}, bool) {
+	val, ok := s.values[name]
+	return val, ok
+}
+
+// Values abc. The func is part of Session interface.
+func (s redisSession) Values() map[string]interface{} {
+	return s.values
+}
+
+// Valid abc. The func is part of Session interface.
+func (s redisSession) Valid() time.Duration {
+	return s.valid
+}
+
+func randomString(strLen int) string {
+	result := make([]byte, strLen)
+	l := len(alowedIDChars)
+	for i := 0; i < strLen; i++ {
+		result[i] = alowedIDChars[rand.Intn(l)]
+	}
+	return string(result)
 }

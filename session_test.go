@@ -2,130 +2,111 @@ package redissession
 
 import (
 	"testing"
-	//"time"
+	"time"
+)
+
+const (
+	// few costs used in tests
+	key   = "name"
+	value = "John"
+)
+
+var (
+	config = Config{
+		DB:       0,
+		Password: "",
+		Host:     "localhost",
+		Port:     6379,
+		IDLength: 50,
+	}
 )
 
 func TestRedisSessionImplementsSessionInterface(t *testing.T) {
-
-	var session Session = redisSession{}
-	t.Logf("redisSession implements Session %v", session)
-
+	var _ Session = redisSession{}
 }
 
-/*
 func TestSessionStoreCreation(t *testing.T) {
 
-	t.Logf("Given the need to create a session store.")
-	t.Logf("\tWhen creating new session store")
-
-	sessionStore, err := NewSessionStore()
-
+	sessionStore, err := NewSessionStore(config)
 	if err != nil {
-		t.Fatalf("\t\tThen error is returned: %s", err.Error())
+		t.Fatalf("SessionStore cannot be created because of: %v", err)
 	}
 
-	t.Logf("\t\tThen session store is returned: %v", sessionStore)
-
+	// cleanup
+	if err = sessionStore.Close(); err != nil {
+		t.Fatalf("Cannot close SessionStore because of: %v", err)
+	}
 }
-
 
 func TestSessionCreation(t *testing.T) {
 
-	t.Logf("Given the need to create a session.")
-	t.Logf("\tWhen creating new session")
-
-	sessionId := NewSession(time.Hour)
-	_, err := FindSession(sessionId)
-
+	sessionStore, err := NewSessionStore(config)
 	if err != nil {
-		t.Fatalf("\t\tThen error is returned: %s", err.Error())
+		t.Fatalf("SessionStore cannot be created because of: %v", err)
 	}
 
-	t.Logf("\t\tThen session is returned with id: %s", sessionId)
+	_, err = sessionStore.NewSession(time.Duration(10) * time.Second)
+	if err != nil {
+		t.Fatalf("Session cannot be created because of: %v", err)
+	}
 
+	// cleanup
+	if err = sessionStore.Close(); err != nil {
+		t.Fatalf("Cannot close SessionStore because of: %v", err)
+	}
 }
 
-func TestSessionReadWriteOperations(t *testing.T) {
+func TestFindNotExistingSession(t *testing.T) {
 
-	key := "name"
-	value := "John"
-
-	t.Logf("Given the need to test read/write session operations.")
-	sessionId := NewSession(time.Hour)
-
-	t.Logf("\tWhen saving data do session")
-	session, _ := FindSession(sessionId)
-	err := session.Add(key, value)
-
+	sessionStore, err := NewSessionStore(config)
 	if err != nil {
-		t.Fatalf("\t\tThen error is returned: %s", err)
-	} else {
-		t.Logf("\t\tThen no error is returned")
+		t.Fatalf("SessionStore cannot be created because of: %v", err)
 	}
 
-	t.Logf("\tWhen reading data from session")
-	session, _ = FindSession(sessionId)
-	name, err := session.Get(key)
-
-	if err != nil {
-		t.Fatalf("\t\tThen error is returned: %s", err.Error())
+	_, err = sessionStore.FindSession("abc")
+	if err == nil {
+		t.Fatalf("For some reason session exists")
 	}
 
-	if name == value {
-		t.Logf("\t\tThen data is the same as it should '%s' == '%s'", name, value)
-	} else {
-		t.Fatalf("\t\tThen data is not the same as it should '%s' == '%s'", name, value)
+	// cleanup
+	if err = sessionStore.Close(); err != nil {
+		t.Fatalf("Cannot close SessionStore because of: %v", err)
 	}
-
 }
 
-func TestSessionTimeout(t *testing.T) {
+func TestFindExistingSession(t *testing.T) {
 
-	t.Logf("Given the need to test session timeout.")
-
-	t.Logf("\tWhen session with short lifetime is created")
-	sessionId := NewSession(1 * time.Second)
-
-	time.Sleep(1 * time.Second)
-	_, err := FindSession(sessionId)
-
+	sessionStore, err := NewSessionStore(config)
 	if err != nil {
-		t.Fatalf("\t\tThen after some time the session should be dead but it isn't")
+		t.Fatalf("SessionStore cannot be created because of: %v", err)
 	}
 
-	t.Logf("\t\tThen after some time the session is dead")
+	session, err := sessionStore.NewSession(time.Duration(10) * time.Second)
+	if err != nil {
+		t.Fatalf("Session cannot be created because of: %v", err)
+	}
 
-}
-
-func TestSessionProlongation(t *testing.T) {
-
-	key := "name"
-	value := "John"
-
-	t.Logf("Given the need to test session prolongation.")
-
-	t.Logf("\tWhen session with short lifetime is created")
-
-	sessionId := NewSession(2 * time.Second)
-	time.Sleep(1 * time.Second)
-
-	t.Logf("\tAnd during it's lifetime it is used")
-	session, _ := FindSession(sessionId)
 	session.Add(key, value)
 
-	time.Sleep(1 * time.Second)
-	session, err := FindSession(sessionId)
-
+	err = sessionStore.SaveSession(session)
 	if err != nil {
-		t.Fatalf("\t\tThen after some time the session is dead")
+		t.Fatalf("Session cannot be saved because of: %v", err)
 	}
 
-	name, err := session.Get(key)
+	session2, err := sessionStore.FindSession(session.ID())
+	if err != nil {
+		t.Fatalf("Session cannot be found because of: %v", err)
+	}
 
-	if value == name {
-		t.Logf("\t\tThen after some time the session is still alive and contains valid data '%s' == '%s'", value, name)
-	} else {
-		t.Fatalf("\t\tThen after some time the session is still alive but it contains invalid data '%s' != '%s'", value, name)
+	val, _ := session2.Get(key)
+	name, _ := val.(string)
+
+	if value != name {
+		t.Fatalf("Invalid value in session. Should be '%v', but is '%v'", value, name)
+	}
+
+	// cleanup
+	if err = sessionStore.Close(); err != nil {
+		t.Fatalf("Cannot close SessionStore because of: %v", err)
 	}
 }
-*/
