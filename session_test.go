@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	// few costs used in tests
+	// few consts used in tests
 	key   = "name"
 	value = "John"
 )
@@ -109,4 +109,34 @@ func TestFindExistingSession(t *testing.T) {
 	if err = sessionStore.Close(); err != nil {
 		t.Fatalf("Cannot close SessionStore because of: %v", err)
 	}
+}
+
+func TestSessionProlongation(t *testing.T) {
+
+	sessionStore, err := NewSessionStore(config)
+	if err != nil {
+		t.Fatalf("SessionStore cannot be created because of: %v", err)
+	}
+
+	session, err := sessionStore.NewSession(time.Duration(3) * time.Second)
+	if err != nil {
+		t.Fatalf("Session cannot be created because of: %v", err)
+	}
+
+	time.Sleep(time.Duration(2) * time.Second)
+
+	session.Add(key, value)
+
+	err = sessionStore.SaveSession(session)
+	if err != nil {
+		t.Fatalf("Session cannot be saved because of: %v", err)
+	}
+
+	time.Sleep(time.Duration(2) * time.Second)
+
+	session2, err := sessionStore.FindSession(session.ID())
+	if err != nil {
+		t.Fatalf("Session cannot be found because of: %v", err)
+	}
+
 }
