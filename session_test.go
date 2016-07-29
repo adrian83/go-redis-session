@@ -1,4 +1,4 @@
-package redissession
+package session
 
 import (
 	"testing"
@@ -134,9 +134,14 @@ func TestSessionProlongation(t *testing.T) {
 
 	time.Sleep(time.Duration(2) * time.Second)
 
-	session2, err := sessionStore.FindSession(session.ID())
+	_, err = sessionStore.FindSession(session.ID())
 	if err != nil {
 		t.Fatalf("Session cannot be found because of: %v", err)
+	}
+
+	// cleanup
+	if err = sessionStore.Close(); err != nil {
+		t.Fatalf("Cannot close SessionStore because of: %v", err)
 	}
 
 }

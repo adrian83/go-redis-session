@@ -1,9 +1,9 @@
-package redissession
+package session
 
 import (
 	"encoding/json"
 	"fmt"
-	"gopkg.in/redis.v3"
+	"gopkg.in/redis.v4"
 	"math/rand"
 	"strconv"
 	"time"
@@ -48,7 +48,7 @@ type Config struct {
 	Host     string
 	Port     int
 	Password string
-	DB       int64
+	DB       int
 	IDLength int
 }
 
