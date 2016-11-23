@@ -40,13 +40,13 @@ func (err OperationFailed) Error() string {
 	return fmt.Sprintf("Operation: %s failed because of: %s", err.operation, err.cause)
 }
 
-// SessionNotFound abc
-type SessionNotFound struct {
+// NotFound abc
+type NotFound struct {
 	id string
 }
 
 // Error abc
-func (err SessionNotFound) Error() string {
+func (err NotFound) Error() string {
 	return fmt.Sprintf("Session with id %s not found", err.id)
 }
 
@@ -59,8 +59,8 @@ type Config struct {
 	IDLength int
 }
 
-// NewSessionStore creates new SessionStore struct based on the provided configuration.
-func NewSessionStore(config Config) (SessionStore, error) {
+// NewStore creates new Store struct based on the provided configuration.
+func NewStore(config Config) (Store, error) {
 	options := &redis.Options{
 		Addr:     config.Host + ":" + strconv.Itoa(config.Port),
 		Password: config.Password,
@@ -71,17 +71,17 @@ func NewSessionStore(config Config) (SessionStore, error) {
 
 	_, err := client.Ping().Result()
 
-	return SessionStore{client: client, config: config}, err
+	return Store{client: client, config: config}, err
 }
 
-// SessionStore is a struct used for creating, updateing and searching for sessions.
-type SessionStore struct {
+// Store is a struct used for creating, updateing and searching for sessions.
+type Store struct {
 	client *redis.Client
 	config Config
 }
 
 // NewSession creates new session with given life length.
-func (s *SessionStore) NewSession(valid time.Duration) (Session, error) {
+func (s *Store) NewSession(valid time.Duration) (Session, error) {
 	return &redisSession{
 		client: s.client,
 		id:     randomString(s.config.IDLength),
@@ -89,13 +89,13 @@ func (s *SessionStore) NewSession(valid time.Duration) (Session, error) {
 		values: make(map[string]string)}, nil
 }
 
-// Close cleans up SessionStore resources.
-func (s *SessionStore) Close() error {
+// Close cleans up Store resources.
+func (s *Store) Close() error {
 	return s.client.Close()
 }
 
 // FindSession function is used to get session by its id.
-func (s *SessionStore) FindSession(sessionID string) (Session, error) {
+func (s *Store) FindSession(sessionID string) (Session, error) {
 
 	values, err := s.client.HGetAll(sessionID).Result()
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *SessionStore) FindSession(sessionID string) (Session, error) {
 	}
 
 	if len(values) == 0 {
-		return nil, SessionNotFound{id: sessionID}
+		return nil, NotFound{id: sessionID}
 	}
 
 	secondsStr := values[valid]
@@ -123,7 +123,7 @@ func (s *SessionStore) FindSession(sessionID string) (Session, error) {
 }
 
 // SaveSession saves given session into Redis.
-func (s *SessionStore) SaveSession(session Session) error {
+func (s *Store) SaveSession(session Session) error {
 
 	seconds := session.Valid().Seconds()
 	session.Values()[valid] = strconv.Itoa(int(seconds))
