@@ -16,7 +16,7 @@ var (
 		DB:       0,
 		Password: "",
 		Host:     "localhost",
-		Port:     6379,
+		Port:     6390,
 		IDLength: 50,
 	}
 )
@@ -98,8 +98,7 @@ func TestFindExistingSession(t *testing.T) {
 		t.Fatalf("Session cannot be found because of: %v", err)
 	}
 
-	val, _ := session2.Get(key)
-	name, _ := val.(string)
+	name, _ := session2.Get(key)
 
 	if value != name {
 		t.Fatalf("Invalid value in session. Should be '%v', but is '%v'", value, name)

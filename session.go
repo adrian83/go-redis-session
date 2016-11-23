@@ -1,38 +1,35 @@
 package session
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"gopkg.in/redis.v4"
 	"math/rand"
 	"strconv"
 	"time"
+
+	redis "gopkg.in/redis.v5"
 )
 
 const (
 	alowedIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+	valid = "__valid__"
 )
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
-/* Interfaces */
-
 // Session interface represents user session.
 type Session interface {
 	ID() string
-	Add(name string, value interface{})
-	Get(name string) (interface{}, bool)
-	Values() map[string]interface{}
+	Add(name string, value string)
+	Get(name string) (string, bool)
+	Values() map[string]string
 	Valid() time.Duration
 }
 
-/* Structs */
-
-/* Errors */
-
-// OperationFailed abc
+// OperationFailed represents error
 type OperationFailed struct {
 	operation string
 	cause     error
@@ -41,6 +38,16 @@ type OperationFailed struct {
 // Error abc
 func (err OperationFailed) Error() string {
 	return fmt.Sprintf("Operation: %s failed because of: %s", err.operation, err.cause)
+}
+
+// SessionNotFound abc
+type SessionNotFound struct {
+	id string
+}
+
+// Error abc
+func (err SessionNotFound) Error() string {
+	return fmt.Sprintf("Session with id %s not found", err.id)
 }
 
 // Config contains all the values used by sessions store.
@@ -60,67 +67,73 @@ func NewSessionStore(config Config) (SessionStore, error) {
 		DB:       config.DB,
 	}
 
-	redisClient := redis.NewClient(options)
+	client := redis.NewClient(options)
 
-	_, err := redisClient.Ping().Result()
+	_, err := client.Ping().Result()
 
-	return SessionStore{redisClient: redisClient, config: config}, err
+	return SessionStore{client: client, config: config}, err
 }
 
 // SessionStore is a struct used for creating, updateing and searching for sessions.
 type SessionStore struct {
-	redisClient *redis.Client
-	config      Config
+	client *redis.Client
+	config Config
 }
 
 // NewSession creates new session with given life length.
 func (s *SessionStore) NewSession(valid time.Duration) (Session, error) {
-	sessionID := randomString(s.config.IDLength)
-	sess := redisSession{
-		client: s.redisClient,
-		id:     sessionID,
+	return &redisSession{
+		client: s.client,
+		id:     randomString(s.config.IDLength),
 		valid:  valid,
-		values: make(map[string]interface{})}
-
-	return &sess, nil
+		values: make(map[string]string)}, nil
 }
 
 // Close cleans up SessionStore resources.
 func (s *SessionStore) Close() error {
-	return s.redisClient.Close()
+	return s.client.Close()
 }
 
 // FindSession function is used to get session by its id.
 func (s *SessionStore) FindSession(sessionID string) (Session, error) {
 
-	sessionJSON, err := s.redisClient.Get(sessionID).Result()
+	values, err := s.client.HGetAll(sessionID).Result()
 	if err != nil {
-		return nil, OperationFailed{operation: "Get", cause: err}
+		return nil, OperationFailed{operation: "HGetAll", cause: err}
 	}
 
-	redisSession := new(redisSession)
-	if err = json.Unmarshal([]byte(sessionJSON), redisSession); err != nil {
-		return nil, err
+	if len(values) == 0 {
+		return nil, SessionNotFound{id: sessionID}
 	}
 
-	return redisSession, err
+	secondsStr := values[valid]
+	seconds, err := strconv.Atoi(secondsStr)
+	if err != nil {
+		return nil, errors.New("Cannot read session duration")
+	}
+
+	session := redisSession{
+		id:     sessionID,
+		client: s.client,
+		valid:  time.Duration(seconds) * time.Second,
+		values: values,
+	}
+
+	return session, err
 }
 
 // SaveSession saves given session into Redis.
 func (s *SessionStore) SaveSession(session Session) error {
 
-	redisSession := &redisSession{id: session.ID(), values: session.Values(), valid: session.Valid()}
+	seconds := session.Valid().Seconds()
+	session.Values()[valid] = strconv.Itoa(int(seconds))
 
-	sessionJSON, err := json.Marshal(redisSession)
-	if err != nil {
-		return err
+	if _, err := s.client.HMSet(session.ID(), session.Values()).Result(); err != nil {
+		return OperationFailed{operation: "HMSet", cause: err}
 	}
 
-	statCmd := s.redisClient.Set(session.ID(), sessionJSON, session.Valid())
-	_, err = statCmd.Result()
-
-	if err != nil {
-		return OperationFailed{operation: "Set", cause: err}
+	if _, err := s.client.Expire(session.ID(), session.Valid()).Result(); err != nil {
+		return OperationFailed{operation: "Expire", cause: err}
 	}
 
 	return nil
@@ -130,41 +143,7 @@ type redisSession struct {
 	id     string
 	client *redis.Client
 	valid  time.Duration
-	values map[string]interface{}
-}
-
-// UnmarshalJSON func is used for unmarshaling redisSession struct.
-func (s *redisSession) UnmarshalJSON(b []byte) error {
-	f := new(struct {
-		ID     string                 `json:"id"`
-		Valid  time.Duration          `json:"valid"`
-		Values map[string]interface{} `json:"values"`
-	})
-
-	if err := json.Unmarshal(b, f); err != nil {
-		return err
-	}
-
-	s.id = f.ID
-	s.valid = f.Valid
-	s.values = f.Values
-	return nil
-}
-
-// MarshalJSON func is used for marshaling redisSession struct.
-func (s *redisSession) MarshalJSON() ([]byte, error) {
-
-	bytes, err := json.Marshal(struct {
-		ID     string                 `json:"id"`
-		Valid  time.Duration          `json:"valid"`
-		Values map[string]interface{} `json:"values"`
-	}{
-		ID:     s.id,
-		Valid:  s.valid,
-		Values: s.values,
-	})
-
-	return bytes, err
+	values map[string]string
 }
 
 // String returns representation of the redisSession as a string.
@@ -178,18 +157,18 @@ func (s redisSession) ID() string {
 }
 
 // Add adds key-value pair to the session. The func is part of Session interface.
-func (s redisSession) Add(name string, value interface{}) {
+func (s redisSession) Add(name string, value string) {
 	s.values[name] = value
 }
 
 // Get abc. The func is part of Session interface.
-func (s redisSession) Get(name string) (interface{}, bool) {
+func (s redisSession) Get(name string) (string, bool) {
 	val, ok := s.values[name]
 	return val, ok
 }
 
 // Values abc. The func is part of Session interface.
-func (s redisSession) Values() map[string]interface{} {
+func (s redisSession) Values() map[string]string {
 	return s.values
 }
 
