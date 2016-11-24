@@ -3,4 +3,4 @@
 
 
 ### Befor running tests please start docker container with Redis.
-`$ cd docker && ./run.sh`
+`$ ./docker/run.sh`
