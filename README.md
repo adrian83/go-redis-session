@@ -1,5 +1,6 @@
 # go-redis-session
-Desc
+## Implementation of user session written in [Go](https://golang.org/). Session data is stored inside the [Redis](http://redis.io/) database.
 
 
-gometalinter ./...
+### Befor running tests please start docker container with Redis.
+`$ cd docker && ./run.sh`

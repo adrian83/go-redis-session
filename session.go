@@ -29,28 +29,36 @@ type Session interface {
 	Valid() time.Duration
 }
 
-// OperationFailed represents error
+// Store interface represents session store.
+type Store interface {
+	NewSession(valid time.Duration) (Session, error)
+	Close() error
+	FindSession(sessionID string) (Session, error)
+	SaveSession(session Session) error
+}
+
+// OperationFailed represents error occured during execution of redis commands.
 type OperationFailed struct {
 	operation string
 	cause     error
 }
 
-// Error abc
+// Error returns string representation of OperationFailed error struct.
 func (err OperationFailed) Error() string {
 	return fmt.Sprintf("Operation: %s failed because of: %s", err.operation, err.cause)
 }
 
-// NotFound abc
+// NotFound error returned when session cannot be found.
 type NotFound struct {
 	id string
 }
 
-// Error abc
+// Error returns string representation of NotFound error struct.
 func (err NotFound) Error() string {
 	return fmt.Sprintf("Session with id %s not found", err.id)
 }
 
-// Config contains all the values used by sessions store.
+// Config contains all the values needed to create sessions store.
 type Config struct {
 	Host     string
 	Port     int
@@ -59,7 +67,7 @@ type Config struct {
 	IDLength int
 }
 
-// NewStore creates new Store struct based on the provided configuration.
+// NewStore creates new session store struct based on the provided configuration.
 func NewStore(config Config) (Store, error) {
 	options := &redis.Options{
 		Addr:     config.Host + ":" + strconv.Itoa(config.Port),
@@ -71,17 +79,17 @@ func NewStore(config Config) (Store, error) {
 
 	_, err := client.Ping().Result()
 
-	return Store{client: client, config: config}, err
+	return &redisStore{client: client, config: config}, err
 }
 
 // Store is a struct used for creating, updateing and searching for sessions.
-type Store struct {
+type redisStore struct {
 	client *redis.Client
 	config Config
 }
 
 // NewSession creates new session with given life length.
-func (s *Store) NewSession(valid time.Duration) (Session, error) {
+func (s *redisStore) NewSession(valid time.Duration) (Session, error) {
 	return &redisSession{
 		client: s.client,
 		id:     randomString(s.config.IDLength),
@@ -89,13 +97,13 @@ func (s *Store) NewSession(valid time.Duration) (Session, error) {
 		values: make(map[string]string)}, nil
 }
 
-// Close cleans up Store resources.
-func (s *Store) Close() error {
+// Close closes the connection with Redis.
+func (s *redisStore) Close() error {
 	return s.client.Close()
 }
 
 // FindSession function is used to get session by its id.
-func (s *Store) FindSession(sessionID string) (Session, error) {
+func (s *redisStore) FindSession(sessionID string) (Session, error) {
 
 	values, err := s.client.HGetAll(sessionID).Result()
 	if err != nil {
@@ -123,7 +131,7 @@ func (s *Store) FindSession(sessionID string) (Session, error) {
 }
 
 // SaveSession saves given session into Redis.
-func (s *Store) SaveSession(session Session) error {
+func (s *redisStore) SaveSession(session Session) error {
 
 	seconds := session.Valid().Seconds()
 	session.Values()[valid] = strconv.Itoa(int(seconds))
@@ -139,6 +147,7 @@ func (s *Store) SaveSession(session Session) error {
 	return nil
 }
 
+// redisSession is an implementation of a Session interface in which session is stored in Redis.
 type redisSession struct {
 	id     string
 	client *redis.Client
@@ -146,37 +155,38 @@ type redisSession struct {
 	values map[string]string
 }
 
-// String returns representation of the redisSession as a string.
+// String returns string representation of the redisSession.
 func (s *redisSession) String() string {
 	return fmt.Sprintf("redisSession { id: %v, valid: %v, values: %v }", s.id, s.valid, s.values)
 }
 
-// Id returns id of the session. The func is part of Session interface.
+// ID returns id of the session.
 func (s redisSession) ID() string {
 	return s.id
 }
 
-// Add adds key-value pair to the session. The func is part of Session interface.
+// Add adds key-value pair to the session.
 func (s redisSession) Add(name string, value string) {
 	s.values[name] = value
 }
 
-// Get abc. The func is part of Session interface.
+// Get returns the value stored in session under given key.
 func (s redisSession) Get(name string) (string, bool) {
 	val, ok := s.values[name]
 	return val, ok
 }
 
-// Values abc. The func is part of Session interface.
+// Values returns map with values stored in session.
 func (s redisSession) Values() map[string]string {
 	return s.values
 }
 
-// Valid abc. The func is part of Session interface.
+// Valid returns duration for how long session is valid.
 func (s redisSession) Valid() time.Duration {
 	return s.valid
 }
 
+// randomString returns random string with given length.
 func randomString(strLen int) string {
 	result := make([]byte, strLen)
 	l := len(alowedIDChars)
