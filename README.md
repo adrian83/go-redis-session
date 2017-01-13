@@ -4,3 +4,6 @@
 
 ### Befor running tests please start docker container with Redis.
 `$ ./docker/run.sh`
+
+####TODO
+1. More unit tests
