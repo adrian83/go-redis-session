@@ -144,3 +144,33 @@ func TestSessionProlongation(t *testing.T) {
 	}
 
 }
+
+func TestDeleteSession(t *testing.T) {
+
+	store, err := NewStore(config)
+	if err != nil {
+		t.Fatalf("Store cannot be created because of: %v", err)
+	}
+
+	session, err := store.NewSession(time.Duration(3) * time.Second)
+	if err != nil {
+		t.Fatalf("Session cannot be created because of: %v", err)
+	}
+
+	session.Add("name", "John")
+	err = store.SaveSession(session)
+	if err != nil {
+		t.Fatalf("Cannot save session because of: %v", err)
+	}
+
+	err = store.DeleteSession(session.ID())
+	if err != nil {
+		t.Fatalf("Cannot delete session because of: %v", err)
+	}
+
+	// cleanup
+	if err = store.Close(); err != nil {
+		t.Fatalf("Cannot close Store because of: %v", err)
+	}
+
+}

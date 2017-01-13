@@ -35,6 +35,7 @@ type Store interface {
 	Close() error
 	FindSession(sessionID string) (Session, error)
 	SaveSession(session Session) error
+	DeleteSession(sessionID string) error
 }
 
 // OperationFailed represents error occured during execution of redis commands.
@@ -128,6 +129,29 @@ func (s *redisStore) FindSession(sessionID string) (Session, error) {
 	}
 
 	return session, err
+}
+
+// DeleteSession deletes session
+func (s *redisStore) DeleteSession(sessionID string) error {
+
+	session, err := s.FindSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	keys := make([]string, 0)
+	for key, _ := range session.Values() {
+		keys = append(keys, key)
+	}
+
+	count, err := s.client.HDel(sessionID, keys...).Result()
+	if err != nil {
+		return OperationFailed{operation: "HDel", cause: err}
+	}
+	if count < 1 {
+		return errors.New("Session doesn't exist")
+	}
+	return nil
 }
 
 // SaveSession saves given session into Redis.
