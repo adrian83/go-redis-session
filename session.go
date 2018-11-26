@@ -1,13 +1,10 @@
 package session
 
 import (
-	"errors"
-	"fmt"
 	"math/rand"
-	"strconv"
 	"time"
 
-	redis "gopkg.in/redis.v5"
+	redis "github.com/go-redis/redis"
 )
 
 const (
@@ -20,6 +17,55 @@ func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
+// Session represents user session.
+type Session struct {
+	ID     string
+	Values map[string]interface{}
+}
+
+type Store struct {
+	client *redis.Client
+}
+
+// Create returns new Session with given ID that will be persisted for
+// given duration or error if something went wrong.
+func (s *Store) Create(ID string, valid time.Duration) (*Session, error) {
+
+	session := &Session{
+		ID:     ID,
+		Values: make(map[string]interface{}, 0),
+	}
+
+	if _, err := s.client.HMSet(ID, map[string]interface{}{}).Result(); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.client.Expire(ID, valid).Result(); err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (s *Store) Find(ID string) (*Session, error) {
+	return nil, nil
+}
+
+func (s *Store) Save(session *Session) error {
+	return nil
+}
+
+// Delete removes session with given ID from store.
+func (s *Store) Delete(ID string) error {
+	return nil
+}
+
+// Close closes session store.
+func (s *Store) Close() error {
+	return s.client.Close()
+}
+
+/*
 // Session interface represents user session.
 type Session interface {
 	ID() string
@@ -219,3 +265,4 @@ func randomString(strLen int) string {
 	}
 	return string(result)
 }
+*/
