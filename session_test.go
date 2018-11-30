@@ -1,19 +1,27 @@
 package session
 
 import (
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
 
+	"log"
+	"os"
+
 	"github.com/go-redis/redis"
+	"github.com/ory/dockertest"
 )
 
 const (
+	// docker
+	image   = "redis"
+	version = "latest"
+
 	// connection properties
 	db       = 0
 	password = ""
 	host     = "localhost"
-	port     = 6390
+	port     = "6379/tcp"
 
 	// few consts used in tests
 	key   = "name"
@@ -21,41 +29,55 @@ const (
 )
 
 var (
-	options = &redis.Options{
-		Addr:     host + ":" + strconv.Itoa(port),
+	client *redis.Client
+)
+
+func TestMain(m *testing.M) {
+
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		log.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	resource, err := pool.Run(image, version, nil)
+	if err != nil {
+		log.Fatalf("Could not start resource: %s", err)
+	}
+
+	options := &redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", host, resource.GetPort(port)),
 		Password: password,
 		DB:       db,
 	}
-)
 
-func TestStoreCreation(t *testing.T) {
-	client := redis.NewClient(options)
-
-	store := NewStore(client)
-
-	// cleanup
-	if err := store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
+	retryFunc := func() error {
+		client = redis.NewClient(options)
+		return client.Ping().Err()
 	}
+
+	if err = pool.Retry(retryFunc); err != nil {
+		log.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	code := m.Run()
+
+	if err := pool.Purge(resource); err != nil {
+		log.Fatalf("Could not purge resource: %s", err)
+	}
+
+	os.Exit(code)
 }
 
 func TestSessionCreation(t *testing.T) {
-	client := redis.NewClient(options)
-
 	store := NewStore(client)
 
 	if _, err := store.Create("abc", time.Duration(10)*time.Second); err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	// cleanup
-	if err := store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestFindNotExistingSession(t *testing.T) {
-	client := redis.NewClient(options)
 	sessionID := "xyz"
 
 	store := NewStore(client)
@@ -64,14 +86,9 @@ func TestFindNotExistingSession(t *testing.T) {
 		t.Errorf("For some reason session exists")
 	}
 
-	// cleanup
-	if err := store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestFindExistingSession(t *testing.T) {
-	client := redis.NewClient(options)
 	sessionID := "abc"
 
 	store := NewStore(client)
@@ -102,15 +119,9 @@ func TestFindExistingSession(t *testing.T) {
 	if value != *name {
 		t.Errorf("Invalid value in session. Should be '%v', but is '%v'", value, *name)
 	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestSessionProlongation(t *testing.T) {
-	client := redis.NewClient(options)
 	sessionID := "def"
 
 	store := NewStore(client)
@@ -136,15 +147,9 @@ func TestSessionProlongation(t *testing.T) {
 	if err != nil {
 		t.Errorf("Session cannot be found because of: %v", err)
 	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestSessionAutoRemoveFunctionality(t *testing.T) {
-	client := redis.NewClient(options)
 	sessionID := "klm"
 
 	store := NewStore(client)
@@ -165,15 +170,9 @@ func TestSessionAutoRemoveFunctionality(t *testing.T) {
 	if err == nil {
 		t.Errorf("Session should not exist")
 	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestDeleteSession(t *testing.T) {
-	client := redis.NewClient(options)
 	sessionID := "def"
 
 	store := NewStore(client)
@@ -200,10 +199,4 @@ func TestDeleteSession(t *testing.T) {
 	if err == nil {
 		t.Errorf("Error was expected")
 	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Errorf("Cannot close Store because of: %v", err)
-	}
-
 }
