@@ -121,6 +121,41 @@ func TestFindExistingSession(t *testing.T) {
 	}
 }
 
+func TestDeleteElementFromSession(t *testing.T) {
+	sessionID := "bcd"
+
+	store := NewStore(client)
+
+	session, err := store.Create(sessionID, time.Duration(10)*time.Second)
+	if err != nil {
+		t.Errorf("Session cannot be created because of: %v", err)
+	}
+
+	if err = session.Add(key, value); err != nil {
+		t.Error("Unexpected error while adding value to session")
+	}
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	session.Remove(key)
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	session2, err := store.Find(sessionID)
+	if err != nil {
+		t.Errorf("Session cannot be found because of: %v", err)
+	}
+
+	name := new(string)
+	if err = session2.Get(key, name); err == nil {
+		t.Error("Expected error while reading value from session but none was returned")
+	}
+}
+
 func TestSessionProlongation(t *testing.T) {
 	sessionID := "def"
 

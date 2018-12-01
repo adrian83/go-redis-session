@@ -1,5 +1,6 @@
 # go-redis-session
-## Implementation of user session written in [Go](https://golang.org/). Session data is stored inside the [Redis](http://redis.io/) database.
+
+### Implementation of user session written in [Go](https://golang.org/). Session data is stored inside the [Redis](http://redis.io/) database.
 
 ### USAGE
 1. Import dependency
@@ -40,6 +41,8 @@ err = store.Save(session)
 session, err := store.Find(sessionID)
 
 err = session.Add(key, value)
+
+session.Remove(key string)
 
 name := new(string)
 err = session.Get(key, name)

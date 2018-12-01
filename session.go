@@ -48,11 +48,21 @@ func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%v with id '%v' cannot be found", e.Name(), e.Key())
 }
 
+func newSession(ID string, valid time.Duration) *Session {
+	return &Session{
+		ID:      ID,
+		values:  make(map[string]string, 0),
+		removed: make([]string, 0),
+		valid:   valid,
+	}
+}
+
 // Session represents user session.
 type Session struct {
-	ID     string
-	values map[string]string
-	valid  time.Duration
+	ID      string
+	values  map[string]string
+	removed []string
+	valid   time.Duration
 }
 
 func (s *Session) toRedisDict() map[string]interface{} {
@@ -73,7 +83,7 @@ func (s *Session) Add(key string, value interface{}) error {
 	return nil
 }
 
-// Get reats value from session.
+// Get reads value from session.
 func (s *Session) Get(key string, value interface{}) error {
 	valStr, ok := s.values[key]
 	if !ok {
@@ -85,6 +95,14 @@ func (s *Session) Get(key string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// Remove removes value with given key from session.
+func (s *Session) Remove(key string) {
+	if key != validKey {
+		s.removed = append(s.removed, key)
+		delete(s.values, key)
+	}
 }
 
 // Store is a struct that can be used to create, store, search for sessions.
@@ -101,11 +119,7 @@ func NewStore(client *redis.Client) *Store {
 // given duration or error if something went wrong.
 func (s *Store) Create(ID string, valid time.Duration) (*Session, error) {
 
-	session := &Session{
-		ID:     ID,
-		values: make(map[string]string, 0),
-		valid:  valid,
-	}
+	session := newSession(ID, valid)
 
 	session.Add(validKey, valid.Seconds())
 
@@ -143,11 +157,11 @@ func (s *Store) Find(ID string) (*Session, error) {
 
 	valid := time.Duration(seconds) * time.Second
 	log.Printf("Find Duration %v", valid)
-	return &Session{
-		ID:     ID,
-		values: values,
-		valid:  valid,
-	}, nil
+
+	session := newSession(ID, valid)
+	session.values = values
+
+	return session, nil
 }
 
 // Save persists given session
@@ -159,6 +173,12 @@ func (s *Store) Save(session *Session) error {
 	sessionInit := make(map[string]interface{}, 0)
 	for key, value := range session.values {
 		sessionInit[key] = value
+	}
+
+	if len(session.removed) > 0 {
+		if _, err := s.client.HDel(session.ID, session.removed...).Result(); err != nil {
+			return err
+		}
 	}
 
 	if _, err := s.client.HMSet(session.ID, sessionInit).Result(); err != nil {
