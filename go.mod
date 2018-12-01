@@ -3,6 +3,7 @@ module github.com/adrian83/go-redis-session
 require (
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/cenkalti/backoff v2.1.0+incompatible // indirect
+	github.com/containerd/continuity v0.0.0-20181027224239-bea7585dbfac // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/go-redis/redis v6.14.2+incompatible

@@ -3,7 +3,6 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
@@ -14,39 +13,12 @@ const (
 	validKey = "__valid__"
 )
 
-// NotFound is an interface for errors returned when requested resource cannot be found.
-type NotFound interface {
-	Name() string
-	Key() string
-}
-
-// NewNotFoundError constructor function for NotFoundError errors.
-func NewNotFoundError(id string) *NotFoundError {
-	return &NotFoundError{
-		name: "session",
-		id:   id,
-	}
-}
-
-// NotFoundError error returned when Session cannot be found.
-type NotFoundError struct {
-	name string
-	id   string
-}
-
-// Name returns name of the resource that cannot be found.
-func (e *NotFoundError) Name() string {
-	return e.name
-}
-
-// Key returns key / id of the resource that cannot be found.
-func (e *NotFoundError) Key() string {
-	return e.id
-}
-
-func (e *NotFoundError) Error() string {
-	return fmt.Sprintf("%v with id '%v' cannot be found", e.Name(), e.Key())
-}
+var (
+	// ErrSessionNotFound error returned when requested session cannot be found.
+	ErrSessionNotFound = fmt.Errorf("session not found")
+	// ErrValueNotFound error returned when requested value cannot be found
+	ErrValueNotFound = fmt.Errorf("value not found")
+)
 
 func newSession(ID string, valid time.Duration) *Session {
 	return &Session{
@@ -87,7 +59,7 @@ func (s *Session) Add(key string, value interface{}) error {
 func (s *Session) Get(key string, value interface{}) error {
 	valStr, ok := s.values[key]
 	if !ok {
-		return fmt.Errorf("not found")
+		return ErrValueNotFound
 	}
 
 	if err := json.Unmarshal([]byte(valStr), value); err != nil {
@@ -105,7 +77,7 @@ func (s *Session) Remove(key string) {
 	}
 }
 
-// Store is a struct that can be used to create, store, search for sessions.
+// Store is a struct that can be used to create, store and search for sessions.
 type Store struct {
 	client *redis.Client
 }
@@ -120,7 +92,6 @@ func NewStore(client *redis.Client) *Store {
 func (s *Store) Create(ID string, valid time.Duration) (*Session, error) {
 
 	session := newSession(ID, valid)
-
 	session.Add(validKey, valid.Seconds())
 
 	_, err := s.client.HMSet(ID, session.toRedisDict()).Result()
@@ -142,10 +113,9 @@ func (s *Store) Find(ID string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Create HGetAll %v", values)
 
 	if len(values) == 0 {
-		return nil, NewNotFoundError(ID)
+		return nil, ErrSessionNotFound
 	}
 
 	secondsStr := values[validKey]
@@ -153,10 +123,8 @@ func (s *Store) Find(ID string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Find Duration secs %v", seconds)
 
 	valid := time.Duration(seconds) * time.Second
-	log.Printf("Find Duration %v", valid)
 
 	session := newSession(ID, valid)
 	session.values = values
@@ -167,25 +135,17 @@ func (s *Store) Find(ID string) (*Session, error) {
 // Save persists given session
 func (s *Store) Save(session *Session) error {
 
-	seconds := session.valid.Seconds()
-	log.Printf("Duration %v", session.valid)
-
-	sessionInit := make(map[string]interface{}, 0)
-	for key, value := range session.values {
-		sessionInit[key] = value
-	}
-
 	if len(session.removed) > 0 {
 		if _, err := s.client.HDel(session.ID, session.removed...).Result(); err != nil {
 			return err
 		}
 	}
 
-	if _, err := s.client.HMSet(session.ID, sessionInit).Result(); err != nil {
+	if _, err := s.client.HMSet(session.ID, session.toRedisDict()).Result(); err != nil {
 		return err
 	}
 
-	if _, err := s.client.Expire(session.ID, time.Duration(seconds)*time.Second).Result(); err != nil {
+	if _, err := s.client.Expire(session.ID, session.valid).Result(); err != nil {
 		return err
 	}
 
@@ -199,9 +159,11 @@ func (s *Store) Delete(ID string) error {
 	if err != nil {
 		return err
 	}
+
 	if count < 1 {
-		return NewNotFoundError(ID)
+		return ErrSessionNotFound
 	}
+
 	return nil
 }
 
