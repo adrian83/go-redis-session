@@ -1,176 +1,237 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"log"
+	"os"
+
+	"github.com/go-redis/redis"
+	"github.com/ory/dockertest"
 )
 
 const (
+	// docker
+	image   = "redis"
+	version = "latest"
+
+	// connection properties
+	db       = 0
+	password = ""
+	host     = "localhost"
+	port     = "6379/tcp"
+
 	// few consts used in tests
 	key   = "name"
 	value = "John"
 )
 
 var (
-	config = Config{
-		DB:       0,
-		Password: "",
-		Host:     "localhost",
-		Port:     6390,
-		IDLength: 50,
-	}
+	client *redis.Client
 )
 
-func TestRedisSessionImplementsSessionInterface(t *testing.T) {
-	var _ Session = redisSession{}
-}
+func TestMain(m *testing.M) {
 
-func TestStoreCreation(t *testing.T) {
-
-	store, err := NewStore(config)
+	pool, err := dockertest.NewPool("")
 	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
+		log.Fatalf("Could not connect to docker: %s", err)
 	}
 
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
+	resource, err := pool.Run(image, version, nil)
+	if err != nil {
+		log.Fatalf("Could not start resource: %s", err)
 	}
+
+	options := &redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", host, resource.GetPort(port)),
+		Password: password,
+		DB:       db,
+	}
+
+	retryFunc := func() error {
+		client = redis.NewClient(options)
+		return client.Ping().Err()
+	}
+
+	if err = pool.Retry(retryFunc); err != nil {
+		log.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	code := m.Run()
+
+	if err := pool.Purge(resource); err != nil {
+		log.Fatalf("Could not purge resource: %s", err)
+	}
+
+	os.Exit(code)
 }
 
 func TestSessionCreation(t *testing.T) {
+	store := NewStore(client)
 
-	store, err := NewStore(config)
-	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
+	if _, err := store.Create("abc", time.Duration(10)*time.Second); err != nil {
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	_, err = store.NewSession(time.Duration(10) * time.Second)
-	if err != nil {
-		t.Fatalf("Session cannot be created because of: %v", err)
-	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestFindNotExistingSession(t *testing.T) {
+	sessionID := "xyz"
 
-	store, err := NewStore(config)
-	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
+	store := NewStore(client)
+
+	if _, err := store.Find(sessionID); err == nil {
+		t.Errorf("For some reason session exists")
 	}
 
-	_, err = store.FindSession("abc")
-	if err == nil {
-		t.Fatalf("For some reason session exists")
-	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
-	}
 }
 
 func TestFindExistingSession(t *testing.T) {
+	sessionID := "abc"
 
-	store, err := NewStore(config)
+	store := NewStore(client)
+
+	session, err := store.Create(sessionID, time.Duration(10)*time.Second)
 	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	session, err := store.NewSession(time.Duration(10) * time.Second)
+	if err = session.Add(key, value); err != nil {
+		t.Errorf("Unexpected error while adding value to session")
+	}
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	session2, err := store.Find(sessionID)
 	if err != nil {
-		t.Fatalf("Session cannot be created because of: %v", err)
+		t.Errorf("Session cannot be found because of: %v", err)
 	}
 
-	session.Add(key, value)
+	name := new(string)
+	if err = session2.Get(key, name); err != nil {
+		t.Errorf("Unexpected error while reading value from session")
+	}
 
-	err = store.SaveSession(session)
+	if value != *name {
+		t.Errorf("Invalid value in session. Should be '%v', but is '%v'", value, *name)
+	}
+}
+
+func TestDeleteElementFromSession(t *testing.T) {
+	sessionID := "bcd"
+
+	store := NewStore(client)
+
+	session, err := store.Create(sessionID, time.Duration(10)*time.Second)
 	if err != nil {
-		t.Fatalf("Session cannot be saved because of: %v", err)
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	session2, err := store.FindSession(session.ID())
+	if err = session.Add(key, value); err != nil {
+		t.Error("Unexpected error while adding value to session")
+	}
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	session.Remove(key)
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	session2, err := store.Find(sessionID)
 	if err != nil {
-		t.Fatalf("Session cannot be found because of: %v", err)
+		t.Errorf("Session cannot be found because of: %v", err)
 	}
 
-	name, _ := session2.Get(key)
-
-	if value != name {
-		t.Fatalf("Invalid value in session. Should be '%v', but is '%v'", value, name)
-	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
+	name := new(string)
+	if err = session2.Get(key, name); err == nil {
+		t.Error("Expected error while reading value from session but none was returned")
 	}
 }
 
 func TestSessionProlongation(t *testing.T) {
+	sessionID := "def"
 
-	store, err := NewStore(config)
-	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
-	}
+	store := NewStore(client)
 
-	session, err := store.NewSession(time.Duration(3) * time.Second)
+	session, err := store.Create(sessionID, time.Duration(3)*time.Second)
 	if err != nil {
-		t.Fatalf("Session cannot be created because of: %v", err)
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
 	time.Sleep(time.Duration(2) * time.Second)
 
-	session.Add(key, value)
+	if err = session.Add(key, value); err != nil {
+		t.Errorf("Unexpected error while adding value to session")
+	}
 
-	err = store.SaveSession(session)
-	if err != nil {
-		t.Fatalf("Session cannot be saved because of: %v", err)
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
 	}
 
 	time.Sleep(time.Duration(2) * time.Second)
 
-	_, err = store.FindSession(session.ID())
+	_, err = store.Find(sessionID)
 	if err != nil {
-		t.Fatalf("Session cannot be found because of: %v", err)
+		t.Errorf("Session cannot be found because of: %v", err)
+	}
+}
+
+func TestSessionAutoRemoveFunctionality(t *testing.T) {
+	sessionID := "klm"
+
+	store := NewStore(client)
+
+	_, err := store.Create(sessionID, time.Duration(1)*time.Second)
+	if err != nil {
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
+	_, err = store.Find(sessionID)
+	if err != nil {
+		t.Errorf("Session cannot be found because of: %v", err)
 	}
 
+	time.Sleep(time.Duration(2) * time.Second)
+
+	_, err = store.Find(sessionID)
+	if err == nil {
+		t.Errorf("Session should not exist")
+	}
 }
 
 func TestDeleteSession(t *testing.T) {
+	sessionID := "def"
 
-	store, err := NewStore(config)
+	store := NewStore(client)
+
+	session, err := store.Create(sessionID, time.Duration(3)*time.Second)
 	if err != nil {
-		t.Fatalf("Store cannot be created because of: %v", err)
+		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
-	session, err := store.NewSession(time.Duration(3) * time.Second)
+	if err = session.Add("name", "John"); err != nil {
+		t.Errorf("Unexpected error while adding value to session")
+	}
+
+	if err = store.Save(session); err != nil {
+		t.Errorf("Session cannot be saved because of: %v", err)
+	}
+
+	err = store.Delete(sessionID)
 	if err != nil {
-		t.Fatalf("Session cannot be created because of: %v", err)
+		t.Errorf("Cannot delete session because of: %v", err)
 	}
 
-	session.Add("name", "John")
-	err = store.SaveSession(session)
-	if err != nil {
-		t.Fatalf("Cannot save session because of: %v", err)
+	_, err = store.Find(sessionID)
+	if err == nil {
+		t.Errorf("Error was expected")
 	}
-
-	err = store.DeleteSession(session.ID())
-	if err != nil {
-		t.Fatalf("Cannot delete session because of: %v", err)
-	}
-
-	// cleanup
-	if err = store.Close(); err != nil {
-		t.Fatalf("Cannot close Store because of: %v", err)
-	}
-
 }
