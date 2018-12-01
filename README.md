@@ -4,12 +4,12 @@
 ### USAGE
 1. Import dependency
 
-import "github.com/go-redis/redis"
+`import "github.com/go-redis/redis"`
 
-go get github.com/go-redis/redis
+`$ go get github.com/go-redis/redis`
 
 2. Crete Redis client
-
+```go
 	options := &redis.Options{
 		Addr:     "redishost:6379",
 		Password: "secret",
@@ -17,6 +17,7 @@ go get github.com/go-redis/redis
 	}
 
     client := redis.NewClient(options)
+```
 
 3. Creating Session Store
 
