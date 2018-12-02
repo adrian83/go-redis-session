@@ -20,24 +20,51 @@ var (
 	ErrValueNotFound = fmt.Errorf("value not found")
 )
 
-func newSession(ID string, valid time.Duration) *Session {
-	return &Session{
-		ID:      ID,
+// Session session is an interface for sessions.
+type Session interface {
+	ID() string
+	Add(key string, value interface{}) error
+	Get(key string, value interface{}) error
+	Remove(key string)
+	Values() map[string]string
+	Removed() []string
+	Valid() time.Duration
+}
+
+func newSession(ID string, valid time.Duration) *session {
+	return &session{
+		id:      ID,
 		values:  make(map[string]string, 0),
 		removed: make([]string, 0),
 		valid:   valid,
 	}
 }
 
-// Session represents user session.
-type Session struct {
-	ID      string
+// session represents user session.
+type session struct {
+	id      string
 	values  map[string]string
 	removed []string
 	valid   time.Duration
 }
 
-func (s *Session) toRedisDict() map[string]interface{} {
+func (s *session) ID() string {
+	return s.id
+}
+
+func (s *session) Values() map[string]string {
+	return s.values
+}
+
+func (s *session) Removed() []string {
+	return s.removed
+}
+
+func (s *session) Valid() time.Duration {
+	return s.valid
+}
+
+func (s *session) toRedisDict() map[string]interface{} {
 	sessionInit := make(map[string]interface{}, 0)
 	for key, value := range s.values {
 		sessionInit[key] = value
@@ -46,7 +73,7 @@ func (s *Session) toRedisDict() map[string]interface{} {
 }
 
 // Add adds value to session.
-func (s *Session) Add(key string, value interface{}) error {
+func (s *session) Add(key string, value interface{}) error {
 	bts, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -56,7 +83,7 @@ func (s *Session) Add(key string, value interface{}) error {
 }
 
 // Get reads value from session.
-func (s *Session) Get(key string, value interface{}) error {
+func (s *session) Get(key string, value interface{}) error {
 	valStr, ok := s.values[key]
 	if !ok {
 		return ErrValueNotFound
@@ -70,26 +97,35 @@ func (s *Session) Get(key string, value interface{}) error {
 }
 
 // Remove removes value with given key from session.
-func (s *Session) Remove(key string) {
+func (s *session) Remove(key string) {
 	if key != validKey {
 		s.removed = append(s.removed, key)
 		delete(s.values, key)
 	}
 }
 
-// Store is a struct that can be used to create, store and search for sessions.
-type Store struct {
+// Store is an interface for session stores.
+type Store interface {
+	Create(ID string, valid time.Duration) (Session, error)
+	Find(ID string) (Session, error)
+	Save(session Session) error
+	Delete(ID string) error
+	Close() error
+}
+
+// store is a struct that can be used to create, store and search for sessions.
+type store struct {
 	client *redis.Client
 }
 
 // NewStore creates new Store struct.
-func NewStore(client *redis.Client) *Store {
-	return &Store{client: client}
+func NewStore(client *redis.Client) Store {
+	return &store{client: client}
 }
 
 // Create returns new Session with given ID that will be persisted for
 // given duration or error if something went wrong.
-func (s *Store) Create(ID string, valid time.Duration) (*Session, error) {
+func (s *store) Create(ID string, valid time.Duration) (Session, error) {
 
 	session := newSession(ID, valid)
 	session.Add(validKey, valid.Seconds())
@@ -107,7 +143,7 @@ func (s *Store) Create(ID string, valid time.Duration) (*Session, error) {
 }
 
 // Find returns Session with given ID if it exist. Error otherwise.
-func (s *Store) Find(ID string) (*Session, error) {
+func (s *store) Find(ID string) (Session, error) {
 
 	values, err := s.client.HGetAll(ID).Result()
 	if err != nil {
@@ -133,19 +169,25 @@ func (s *Store) Find(ID string) (*Session, error) {
 }
 
 // Save persists given session
-func (s *Store) Save(session *Session) error {
+func (s *store) Save(session Session) error {
 
-	if len(session.removed) > 0 {
-		if _, err := s.client.HDel(session.ID, session.removed...).Result(); err != nil {
+	removed := session.Removed()
+	if len(removed) > 0 {
+		if _, err := s.client.HDel(session.ID(), removed...).Result(); err != nil {
 			return err
 		}
 	}
 
-	if _, err := s.client.HMSet(session.ID, session.toRedisDict()).Result(); err != nil {
+	sessionVals := make(map[string]interface{}, 0)
+	for key, value := range session.Values() {
+		sessionVals[key] = value
+	}
+
+	if _, err := s.client.HMSet(session.ID(), sessionVals).Result(); err != nil {
 		return err
 	}
 
-	if _, err := s.client.Expire(session.ID, session.valid).Result(); err != nil {
+	if _, err := s.client.Expire(session.ID(), session.Valid()).Result(); err != nil {
 		return err
 	}
 
@@ -153,7 +195,7 @@ func (s *Store) Save(session *Session) error {
 }
 
 // Delete removes session with given ID from store.
-func (s *Store) Delete(ID string) error {
+func (s *store) Delete(ID string) error {
 
 	count, err := s.client.Del(ID).Result()
 	if err != nil {
@@ -168,6 +210,6 @@ func (s *Store) Delete(ID string) error {
 }
 
 // Close closes session store.
-func (s *Store) Close() error {
+func (s *store) Close() error {
 	return s.client.Close()
 }
