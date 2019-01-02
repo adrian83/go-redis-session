@@ -69,9 +69,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestSessionCreation(t *testing.T) {
-	store := NewStore(client)
+	store := NewStore(client, 10)
 
-	if _, err := store.Create("abc", time.Duration(10)*time.Second); err != nil {
+	if _, err := store.Create("abc"); err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestSessionCreation(t *testing.T) {
 func TestFindNotExistingSession(t *testing.T) {
 	sessionID := "xyz"
 
-	store := NewStore(client)
+	store := NewStore(client, 10)
 
 	if _, err := store.Find(sessionID); err == nil {
 		t.Errorf("For some reason session exists")
@@ -91,9 +91,9 @@ func TestFindNotExistingSession(t *testing.T) {
 func TestFindExistingSession(t *testing.T) {
 	sessionID := "abc"
 
-	store := NewStore(client)
+	store := NewStore(client, 10)
 
-	session, err := store.Create(sessionID, time.Duration(10)*time.Second)
+	session, err := store.Create(sessionID)
 	if err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
@@ -124,9 +124,9 @@ func TestFindExistingSession(t *testing.T) {
 func TestDeleteElementFromSession(t *testing.T) {
 	sessionID := "bcd"
 
-	store := NewStore(client)
+	store := NewStore(client, 10)
 
-	session, err := store.Create(sessionID, time.Duration(10)*time.Second)
+	session, err := store.Create(sessionID)
 	if err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
@@ -159,9 +159,9 @@ func TestDeleteElementFromSession(t *testing.T) {
 func TestSessionProlongation(t *testing.T) {
 	sessionID := "def"
 
-	store := NewStore(client)
+	store := NewStore(client, 3)
 
-	session, err := store.Create(sessionID, time.Duration(3)*time.Second)
+	session, err := store.Create(sessionID)
 	if err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
@@ -187,9 +187,9 @@ func TestSessionProlongation(t *testing.T) {
 func TestSessionAutoRemoveFunctionality(t *testing.T) {
 	sessionID := "klm"
 
-	store := NewStore(client)
+	store := NewStore(client, 1)
 
-	_, err := store.Create(sessionID, time.Duration(1)*time.Second)
+	_, err := store.Create(sessionID)
 	if err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}
@@ -210,9 +210,9 @@ func TestSessionAutoRemoveFunctionality(t *testing.T) {
 func TestDeleteSession(t *testing.T) {
 	sessionID := "def"
 
-	store := NewStore(client)
+	store := NewStore(client, 3)
 
-	session, err := store.Create(sessionID, time.Duration(3)*time.Second)
+	session, err := store.Create(sessionID)
 	if err != nil {
 		t.Errorf("Session cannot be created because of: %v", err)
 	}

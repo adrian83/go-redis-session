@@ -26,13 +26,13 @@ client := redis.NewClient(options)
 3. Create Session Store
 
 ```go
-store := NewStore(client)
+store := NewStore(client, 3600)
 ```
 
 4. Supported operations
 
 ```go
-session, err := store.Create(sessionID, time.Duration(10)*time.Second)
+session, err := store.Create(sessionID)
 
 err = store.Delete(sessionID)
 

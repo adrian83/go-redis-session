@@ -3,14 +3,9 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
-)
-
-const (
-	validKey = "__valid__"
 )
 
 var (
@@ -28,15 +23,13 @@ type Session interface {
 	Remove(key string)
 	Values() map[string]string
 	Removed() []string
-	Valid() time.Duration
 }
 
-func newSession(ID string, valid time.Duration) *session {
+func newSession(ID string) *session {
 	return &session{
 		id:      ID,
 		values:  make(map[string]string, 0),
 		removed: make([]string, 0),
-		valid:   valid,
 	}
 }
 
@@ -45,7 +38,6 @@ type session struct {
 	id      string
 	values  map[string]string
 	removed []string
-	valid   time.Duration
 }
 
 func (s *session) ID() string {
@@ -58,10 +50,6 @@ func (s *session) Values() map[string]string {
 
 func (s *session) Removed() []string {
 	return s.removed
-}
-
-func (s *session) Valid() time.Duration {
-	return s.valid
 }
 
 func (s *session) toRedisDict() map[string]interface{} {
@@ -98,15 +86,13 @@ func (s *session) Get(key string, value interface{}) error {
 
 // Remove removes value with given key from session.
 func (s *session) Remove(key string) {
-	if key != validKey {
-		s.removed = append(s.removed, key)
-		delete(s.values, key)
-	}
+	s.removed = append(s.removed, key)
+	delete(s.values, key)
 }
 
 // Store is an interface for session stores.
 type Store interface {
-	Create(ID string, valid time.Duration) (Session, error)
+	Create(ID string) (Session, error)
 	Find(ID string) (Session, error)
 	Save(session Session) error
 	Delete(ID string) error
@@ -116,26 +102,28 @@ type Store interface {
 // store is a struct that can be used to create, store and search for sessions.
 type store struct {
 	client *redis.Client
+	valid  time.Duration
 }
 
 // NewStore creates new Store struct.
-func NewStore(client *redis.Client) Store {
-	return &store{client: client}
+func NewStore(client *redis.Client, validSec int) Store {
+	return &store{
+		client: client,
+		valid:  time.Duration(validSec) * time.Second,
+	}
 }
 
-// Create returns new Session with given ID that will be persisted for
-// given duration or error if something went wrong.
-func (s *store) Create(ID string, valid time.Duration) (Session, error) {
+// Create returns new Session with given ID or error if something went wrong.
+func (s *store) Create(ID string) (Session, error) {
 
-	session := newSession(ID, valid)
-	session.Add(validKey, valid.Seconds())
+	session := newSession(ID)
+	session.Add("exists", true)
 
-	_, err := s.client.HMSet(ID, session.toRedisDict()).Result()
-	if err != nil {
+	if _, err := s.client.HMSet(ID, session.toRedisDict()).Result(); err != nil {
 		return nil, err
 	}
 
-	if _, err := s.client.Expire(ID, valid).Result(); err != nil {
+	if _, err := s.client.Expire(ID, s.valid).Result(); err != nil {
 		return nil, err
 	}
 
@@ -154,15 +142,7 @@ func (s *store) Find(ID string) (Session, error) {
 		return nil, ErrSessionNotFound
 	}
 
-	secondsStr := values[validKey]
-	seconds, err := strconv.ParseInt(secondsStr, 10, 32)
-	if err != nil {
-		return nil, err
-	}
-
-	valid := time.Duration(seconds) * time.Second
-
-	session := newSession(ID, valid)
+	session := newSession(ID)
 	session.values = values
 
 	return session, nil
@@ -187,7 +167,7 @@ func (s *store) Save(session Session) error {
 		return err
 	}
 
-	if _, err := s.client.Expire(session.ID(), session.Valid()).Result(); err != nil {
+	if _, err := s.client.Expire(session.ID(), s.valid).Result(); err != nil {
 		return err
 	}
 
