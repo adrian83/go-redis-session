@@ -26,6 +26,23 @@ func TestCreateSession(t *testing.T) {
 	assert.NotNil(t, sess)
 }
 
+func TestFindSessionFailsBecauseOfNotExistingSession(t *testing.T) {
+	// given
+	dbClient := dbClientMock{
+		hGetAllCmd: redis.NewStringStringMapCmd("ok"),
+	}
+
+	sessStore := session.NewStore(&dbClient, 10)
+
+	// when
+	sess, err := sessStore.Find("abc")
+
+	// then
+	assert.Error(t, err)
+	assert.Equal(t, session.ErrSessionNotFound, err)
+	assert.Nil(t, sess)
+}
+
 type dbClientMock struct {
 	hmSetStatus *redis.StatusCmd
 	expireCmd   *redis.BoolCmd

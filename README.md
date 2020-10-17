@@ -44,12 +44,13 @@ err = session.Add(key, value)
 
 session.Remove(key string)
 
-name := new(string)
-err = session.Get(key, name)
+var name string
+err = session.Get(key, &name)
 ```
 
 
 ### TESTING
-1. Make sure docker daemon is running.
-2. Run `go test ./...`
+1. Running unit tests: `go test ./...`
+2. Running integration tests: `go test ./... --tags=integration` (make sure docker daemon is running)
+
 

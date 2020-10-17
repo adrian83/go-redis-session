@@ -1,3 +1,5 @@
+// +build integration
+
 package session_test
 
 import (
